@@ -28,6 +28,9 @@ argfd(int n, int *pfd, struct file **pf)
     return -1;
   if(fd < 0 || fd >= NOFILE || (f=myproc()->ofile[fd]) == 0)
     return -1;
+  // myproc()：获取当前进程的指针。
+  // ofile：是当前进程的打开文件数组。
+  // ofile[fd]：表示文件描述符 fd 对应的文件结构体指针
   if(pfd)
     *pfd = fd;
   if(pf)
@@ -484,3 +487,4 @@ sys_pipe(void)
   }
   return 0;
 }
+

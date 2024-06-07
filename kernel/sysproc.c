@@ -6,6 +6,8 @@
 #include "memlayout.h"
 #include "spinlock.h"
 #include "proc.h"
+#include "sysinfo.h"
+
 
 uint64
 sys_exit(void)
@@ -94,4 +96,42 @@ sys_uptime(void)
   xticks = ticks;
   release(&tickslock);
   return xticks;
+}
+
+uint64
+sys_trace(void)
+{ 
+  int n;
+  if(argint(0, &n)<0)
+    return -1;
+
+  myproc()->arg=n;
+  return 0;
+}
+// To collect the amount of free memory, add a function to kernel/kalloc.c
+extern uint64 freebyte(void);
+// To collect the number of processes, add a function to kernel/proc.c
+extern uint64 num_proc(void);
+//两个函数在这里声明，但是在另外两个文件里定义
+//此时不能使用包含两个文件kernel/kalloc.c和 kernel/proc.c的方式，有同名的函数，会引起变量的冲突
+//这样声明就是使编译器直到这个函数的存在，在链接的时候会找到这个函数的定义
+
+uint64
+sys_sysinfo(void)
+{
+  struct proc *p=myproc();//用来指向当前进程
+  struct sysinfo _sysinfo;
+  uint64 user_addr;//获取虚拟地址，即user给sysinfo这个系统调用的地址
+  _sysinfo.freemem=freebyte();
+  _sysinfo.nproc=num_proc();
+
+  //获取用户态传来的地址
+  if(argaddr(0,&user_addr)<0)
+    return -1;//失败
+
+  //将sysinfo从kernel mode传回给user mode给定的地址
+  if(copyout(p->pagetable,user_addr,(char*) &_sysinfo,sizeof _sysinfo))
+    return -1;//失败
+  
+  return 0;//成功
 }

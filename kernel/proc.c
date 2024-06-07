@@ -277,6 +277,8 @@ fork(void)
 
   np->parent = p;
 
+  //copy argument
+  np->arg=p->arg;
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
 
@@ -692,4 +694,22 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+uint64
+num_proc(){
+  struct proc *p;
+  int count=0;
+  for(p = proc; p < &proc[NPROC]; p++)
+  {
+    // p->lock 必须被 held 在获取 state 时
+    //否则state会变化
+    acquire(&p->lock);
+    if(p->state!=UNUSED)
+    {
+      count++;
+    }
+    release(&p->lock);
+  }
+  return count;
 }

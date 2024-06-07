@@ -104,7 +104,11 @@ extern uint64 sys_unlink(void);
 extern uint64 sys_wait(void);
 extern uint64 sys_write(void);
 extern uint64 sys_uptime(void);
+extern uint64 sys_trace(void);
+extern uint64 sys_sysinfo(void);
 
+//定义系统调用的函数指针数组
+//数组的每个元素都对应特定的系统调用编号
 static uint64 (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
 [SYS_exit]    sys_exit,
@@ -127,17 +131,50 @@ static uint64 (*syscalls[])(void) = {
 [SYS_link]    sys_link,
 [SYS_mkdir]   sys_mkdir,
 [SYS_close]   sys_close,
+[SYS_trace]   sys_trace,
+[SYS_sysinfo] sys_sysinfo,
+};
+
+// 新增除 trace 以外数字 -> 系统调用名映射
+static char *syscallnames[] = {
+[SYS_fork] "fork",
+[SYS_exit] "exit",
+[SYS_wait] "wait",
+[SYS_pipe] "pipe",
+[SYS_read] "read",
+[SYS_kill] "kill",
+[SYS_exec] "exec",
+[SYS_fstat] "fstat",
+[SYS_chdir] "chdir",
+[SYS_dup] "dup",
+[SYS_getpid] "getpid",
+[SYS_sbrk] "sbrk",
+[SYS_sleep] "sleep",
+[SYS_uptime] "uptime",
+[SYS_open] "open",
+[SYS_write] "write",
+[SYS_mknod] "mknod",
+[SYS_unlink] "unlink",
+[SYS_link] "link",
+[SYS_mkdir] "mkdir",
+[SYS_close] "close",
+[SYS_trace] "trace",
+[SYS_sysinfo] "sys_sysinfo",
 };
 
 void
 syscall(void)
 {
-  int num;
-  struct proc *p = myproc();
+  int num;//定义num获得系统调用的编号
+  struct proc *p = myproc();//定义p获得当前正常运行的进程的地址
 
   num = p->trapframe->a7;
   if(num > 0 && num < NELEM(syscalls) && syscalls[num]) {
-    p->trapframe->a0 = syscalls[num]();
+    p->trapframe->a0 = syscalls[num]();// 执行系统调用，然后将返回值存入a0
+    // p->trapframe->a0 是进程 p 的返回值
+    if((1 << num) & p->arg){
+      printf("%d: syscall %s -> %d\n",p->pid, syscallnames[num],p->trapframe->a0);
+    }
   } else {
     printf("%d %s: unknown sys call %d\n",
             p->pid, p->name, num);
