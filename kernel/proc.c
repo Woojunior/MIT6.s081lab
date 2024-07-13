@@ -34,12 +34,14 @@ procinit(void)
       // Allocate a page for the process's kernel stack.
       // Map it high in memory, followed by an invalid
       // guard page.
+      /* 删除分配 kernel stack 的内容
       char *pa = kalloc();
       if(pa == 0)
         panic("kalloc");
       uint64 va = KSTACK((int) (p - proc));
       kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
       p->kstack = va;
+      */
   }
   kvminithart();
 }
@@ -106,7 +108,19 @@ allocproc(void)
 
 found:
   p->pid = allocpid();
-
+  
+  // proc 独有的 kernel page table
+  p->kpagetable = ukvminit();
+  // procinit 中的内容拿进来，给 kpagetable 分配一个 STACK page
+  // Allocate a page for the process's kernel stack.
+  // Map it high in memory, followed by an invalid
+  // guard page.
+  char *pa = kalloc();
+  if(pa == 0)
+    panic("kalloc");
+  uint64 va = KSTACK((int) (p-proc));
+  ukvmmap(p->kpagetable, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+  p->kstack = va;
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
     release(&p->lock);
@@ -130,6 +144,30 @@ found:
   return p;
 }
 
+// 仿造 vm.c etext 否则报错没有 etext , trampoline
+extern char etext[]; // kernel.ld sets this to end of kernel code.
+// 仿造 proc_freepagetable 把 kernel page table 也给 free 了
+// 注意用 uvmunmap(..., do_free=0) 别把物理内存给释放了
+// 用 uvmfree 把 kstack 的物理内存给释放了
+void
+proc_freekpagetable(pagetable_t kpagetable)
+{ 
+  // similar to the freewalk method
+  // there are 2^9 = 512 PTEs in a page table.
+  for(int i = 0; i < 512; i++){
+    pte_t pte = kpagetable[i];
+    if(pte & PTE_V){
+      kpagetable[i] = 0;
+      if ((pte & (PTE_R|PTE_W|PTE_X)) == 0){
+        uint64 child = PTE2PA(pte);
+       proc_freekpagetable((pagetable_t)child);
+      }
+    }
+  }
+  kfree((void*)kpagetable);
+}
+
+
 // free a proc structure and the data hanging from it,
 // including user pages.
 // p->lock must be held.
@@ -139,6 +177,14 @@ freeproc(struct proc *p)
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
+    // 新
+  // free the kernel stack in the RAM
+  if(p->kstack)
+    uvmunmap(p->kpagetable, p->kstack, 1, 1);
+  p->kstack = 0;
+  if(p->kpagetable)
+    proc_freekpagetable(p->kpagetable);
+  p->kpagetable = 0;
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
@@ -221,6 +267,7 @@ userinit(void)
   uvminit(p->pagetable, initcode, sizeof(initcode));
   p->sz = PGSIZE;
 
+  u2kvmcopy(p->pagetable,p->kpagetable,0,p->sz);
   // prepare for the very first "return" from kernel to user.
   p->trapframe->epc = 0;      // user program counter
   p->trapframe->sp = PGSIZE;  // user stack pointer
@@ -243,9 +290,15 @@ growproc(int n)
 
   sz = p->sz;
   if(n > 0){
+    // 加上PLIC限制
+    if (PGROUNDUP(sz + n) >= PLIC){
+      return -1;
+    }
     if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
       return -1;
     }
+    // 复制一份到内核页表
+    u2kvmcopy(p->pagetable, p->kpagetable, sz - n, sz);
   } else if(n < 0){
     sz = uvmdealloc(p->pagetable, sz, sz + n);
   }
@@ -276,7 +329,7 @@ fork(void)
   np->sz = p->sz;
 
   np->parent = p;
-
+ u2kvmcopy(np->pagetable, np->kpagetable, 0, np->sz);
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
 
@@ -473,7 +526,16 @@ scheduler(void)
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
+
+        // 在把 p 交给 cpu 前，把 cpu 的 SATP 寄存器换成 p 的 kernel page table 的
+        w_satp(MAKE_SATP(p->kpagetable));
+        sfence_vma();
+
         swtch(&c->context, &p->context);
+
+        
+        // 别忘了用 kvminithart 把 SATP 换回来
+        kvminithart();
 
         // Process is done running for now.
         // It should have changed its p->state before coming back.

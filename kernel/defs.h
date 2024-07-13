@@ -12,7 +12,9 @@ struct superblock;
 struct mbuf;
 struct sock;
 #endif
-
+// vmcopyin.c
+int             copyin_new(pagetable_t, char *, uint64, uint64);
+int             copyinstr_new(pagetable_t, char *, uint64, uint64);
 // bio.c
 void            binit(void);
 struct buf*     bread(uint, uint);
@@ -178,7 +180,11 @@ uint64          walkaddr(pagetable_t, uint64);
 int             copyout(pagetable_t, uint64, char *, uint64);
 int             copyin(pagetable_t, char *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
-
+void            vmprint(pagetable_t);
+pagetable_t     ukvminit();
+void            ukvmmap(pagetable_t kpagetable, uint64 va, uint64 pa, uint64 sz, int perm);
+void            uvmfreekstack(pagetable_t pagetable, uint64 kstack);
+void            u2kvmcopy(pagetable_t pagetable, pagetable_t kernelpt, uint64 oldsz, uint64 newsz);
 // plic.c
 void            plicinit(void);
 void            plicinithart(void);
