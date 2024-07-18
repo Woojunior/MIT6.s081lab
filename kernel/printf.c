@@ -115,12 +115,29 @@ printf(char *fmt, ...)
 }
 
 void
+backtrace(void)
+{
+    //get frame pointer
+    uint64 fp=r_fp();
+
+      printf("backtrace:\n");
+
+    //print stack return address
+    while(PGROUNDUP(fp)-PGROUNDDOWN(fp)==PGSIZE){
+      printf("%p\n",*((uint64*)(fp-8)));
+      fp=*((uint64*)(fp-16));//先将偏移16字节后的值转化为指针，然后解引用该指针,得到上一个stack frame的fp
+    }
+
+}
+
+void
 panic(char *s)
 {
   pr.locking = 0;
   printf("panic: ");
   printf(s);
   printf("\n");
+  backtrace();
   panicked = 1; // freeze uart output from other CPUs
   for(;;)
     ;

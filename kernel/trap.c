@@ -78,8 +78,22 @@ usertrap(void)
 
   // give up the CPU if this is a timer interrupt.
   if(which_dev == 2)
-    yield();
+  {
+    if(p->interval){
+      if(p->num_ticks==p->interval)
+      { //保存修改前的trapframe
+        *p->pre_trapframe=*p->trapframe;
 
+        //在修改用户计数器，在从内核返回时，先执行alarm程序
+        p->trapframe->epc=(uint64)p->handler;
+
+        // //清空两次调用的ticks数
+        // p->num_ticks=0;
+      }
+      p->num_ticks++;//开始两次调用间隔的计数
+    }
+    yield();
+  }
   usertrapret();
 }
 

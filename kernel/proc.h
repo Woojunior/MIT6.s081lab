@@ -94,6 +94,11 @@ struct proc {
   int xstate;                  // Exit status to be returned to parent's wait
   int pid;                     // Process ID
 
+  int interval;//报警间隔
+  uint64 handler;//处理程序函数的指针,直接保存地址值
+  int num_ticks;//两次调用间经历的滴答数
+  struct trapframe *pre_trapframe;//用于保存alarm调用前的寄存器（即用户寄存器）
+
   // these are private to the process, so p->lock need not be held.
   uint64 kstack;               // Virtual address of kernel stack
   uint64 sz;                   // Size of process memory (bytes)
