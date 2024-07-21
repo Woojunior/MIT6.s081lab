@@ -68,6 +68,39 @@ int
 argaddr(int n, uint64 *ip)
 {
   *ip = argraw(n);
+  struct proc* p=myproc();
+
+/*系统调用流程：
+
+陷入内核**==>usertrap中r_scause()==8的分支==>syscall()==>**回到用户空间
+
+页面错误流程：
+
+陷入内核**==>usertrap中r_scause()==13||r_scause()==15的分支==>分配内存==>**回到用户空间
+*/
+
+//以下是r_scause()=8时，系统调用发生，但是没有物理内存，因而要分配物理内容
+//不是page fault的情况，而是system call 的情况
+  if(walkaddr(p->pagetable,*ip)==0){
+    //即有虚拟地址，但还未分配物理内存的情况
+    if(*ip>PGROUNDUP(p->trapframe->sp)-1&&*ip<p->sz){
+      uint64 ka=(uint64)kalloc(); //分配一页物理内存，并返回物理地址的开始位置
+      if(ka==0){
+        return -1;
+      }
+      memset((void *)ka,0,PGSIZE);
+      *ip=PGROUNDDOWN(*ip);//将虚拟地址向下舍入到页边界
+
+       //将物理地址映射到虚拟地址
+      if(mappages(p->pagetable, *ip, PGSIZE, ka, PTE_W|PTE_X|PTE_R|PTE_U) != 0){
+          //映射失败，释放物理内存，杀掉进程
+          kfree((void *)ka);
+          return -1;
+      }
+    }else{
+      return -1;
+    } 
+  }
   return 0;
 }
 

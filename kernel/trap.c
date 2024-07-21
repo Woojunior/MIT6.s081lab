@@ -67,7 +67,33 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
-  } else {
+  }else if(r_scause()==15||r_scause()==13){
+    uint64 va=r_stval();  // the virtual address that caused the page fault.
+    //printf("page fault: %p\n",va);
+ 
+    uint64 ka=(uint64)kalloc(); //分配一页物理内存，并返回物理地址的开始位置
+    //检查产生page fault的虚拟地址是否在stack之上heap的顶部之下
+    if(va>PGROUNDUP(p->trapframe->sp)-1 && va<p->sz){
+      if(ka==0){
+        //如果没有物理内存了，杀掉进程
+        p->killed=1;
+      }else{
+         //如果分配一页物理内存成功
+        memset((void *)ka,0,PGSIZE);//先将将物理内存清空
+        va=PGROUNDDOWN(va);//将故障虚拟地址向下舍入到页边界
+        //将物理地址映射到虚拟地址
+        if(mappages(p->pagetable, va, PGSIZE, ka, PTE_W|PTE_X|PTE_R|PTE_U) != 0){
+          //映射失败，释放物理内存，杀掉进程
+          kfree((void *)ka);
+          p->killed=1;
+        }
+      }
+    }else{
+      //page fault 产生的虚拟地址不在堆内 杀死进程
+      p->killed=1;
+    }
+  } 
+  else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
     p->killed = 1;

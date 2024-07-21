@@ -181,9 +181,15 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
 
   for(a = va; a < va + npages*PGSIZE; a += PGSIZE){
     if((pte = walk(pagetable, a, 0)) == 0)
-      panic("uvmunmap: walk");
+     // panic("uvmunmap: walk");
+     continue;
     if((*pte & PTE_V) == 0)
-      panic("uvmunmap: not mapped");
+    //这情况表明我们希望释放没有映射的页面（即sbrk增加了p->sze，但是应用程序还没使用那部分内存，因而没有映射）
+    //所以此种情况内存（只有还有虚拟内存）是不需要释放的
+      //删掉这一段，lazy allocation是只分配虚拟内存，因为还没使用，所以不会立刻映射到物理内存
+      //因此此时PTE_V=0，没有对应的映射，这并不是一个实际的pinic，是可能会发生的预期情况
+      //panic("uvmunmap: not mapped");
+      continue;
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
     if(do_free){
@@ -315,9 +321,13 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
-      panic("uvmcopy: pte should exist");
+      //panic("uvmcopy: pte should exist");
+      //使用lazy allocated后，此种情况合理，不会发生panic
+      continue;
     if((*pte & PTE_V) == 0)
-      panic("uvmcopy: page not present");
+      //panic("uvmcopy: page not present");
+      //使用lazy allocated后，此种情况合理，不会发生panic
+      continue;
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
     if((mem = kalloc()) == 0)

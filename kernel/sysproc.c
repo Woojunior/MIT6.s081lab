@@ -46,9 +46,24 @@ sys_sbrk(void)
 
   if(argint(0, &n) < 0)
     return -1;
-  addr = myproc()->sz;
-  if(growproc(n) < 0)
-    return -1;
+
+  struct proc* p=myproc();  
+  addr = p->sz;
+  uint64 sz=p->sz;
+  // if(growproc(n) < 0)
+  //   return -1;
+  //n>0,即增加内存的情况
+  if(n>=0 && addr + n >= addr){
+  // lazy allocation
+  p->sz=p->sz+n;
+  }
+  //n<0,内存减小，但是内存空间不能为负数
+  else if(n<0 && sz+n>=PGROUNDUP(p->trapframe->sp)){
+    sz = uvmdealloc(p->pagetable, sz, sz + n);
+    p->sz=sz;
+  }else{
+    return -1;//错误
+  }
   return addr;
 }
 
