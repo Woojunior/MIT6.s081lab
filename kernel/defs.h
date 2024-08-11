@@ -9,6 +9,11 @@ struct sleeplock;
 struct stat;
 struct superblock;
 
+int krefcnt(void* pa);
+int kaddrefcnt(void*);
+void* cowalloc(pagetable_t, uint64);
+int cowpage(pagetable_t, uint64);
+
 // bio.c
 void            binit(void);
 struct buf*     bread(uint, uint);

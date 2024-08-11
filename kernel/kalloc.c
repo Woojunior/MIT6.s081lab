@@ -14,6 +14,12 @@ void freerange(void *pa_start, void *pa_end);
 extern char end[]; // first address after kernel.
                    // defined by kernel.ld.
 
+
+struct ref_stru {
+  struct spinlock lock;//加入自旋锁的原因是，可能存在同时访问引用计数
+  int cnt[PHYSTOP / PGSIZE];  // 引用计数
+} ref;
+
 struct run {
   struct run *next;
 };
@@ -27,6 +33,7 @@ void
 kinit()
 {
   initlock(&kmem.lock, "kmem");
+  initlock(&ref.lock,"ref");//初始化引用计数的锁
   freerange(end, (void*)PHYSTOP);
 }
 
@@ -35,8 +42,11 @@ freerange(void *pa_start, void *pa_end)
 {
   char *p;
   p = (char*)PGROUNDUP((uint64)pa_start);
-  for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE)
+  for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE){
+    // 在kfree中将会对cnt[]减1，这里要先设为1，否则就会减成负数
+    ref.cnt[(uint64)p / PGSIZE] = 1;
     kfree(p);
+  }
 }
 
 // Free the page of physical memory pointed at by v,
@@ -47,19 +57,29 @@ void
 kfree(void *pa)
 {
   struct run *r;
-
+  /*在kalloc中初始化内存引用计数为1，
+  在kfree函数中对内存引用计数减1，如果引用计数为0时才真正删除
+  */
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
-
+  
+  // 只有当引用计数为0了才回收空间
+  // 否则只是将引用计数减1
   // Fill with junk to catch dangling refs.
-  memset(pa, 1, PGSIZE);
+  acquire(&ref.lock);
+  if(--ref.cnt[(uint64)pa/PGSIZE]==0){
+    release(&ref.lock);
+    memset(pa, 1, PGSIZE);
 
-  r = (struct run*)pa;
+    r = (struct run*)pa;
 
-  acquire(&kmem.lock);
-  r->next = kmem.freelist;
-  kmem.freelist = r;
-  release(&kmem.lock);
+    acquire(&kmem.lock);
+    r->next = kmem.freelist;
+    kmem.freelist = r;
+    release(&kmem.lock);
+  }else{
+    release(&ref.lock);
+  }
 }
 
 // Allocate one 4096-byte page of physical memory.
@@ -72,11 +92,39 @@ kalloc(void)
 
   acquire(&kmem.lock);
   r = kmem.freelist;
-  if(r)
+  if(r){
     kmem.freelist = r->next;
+    //将引用计数设置为1
+    acquire(&ref.lock);
+    ref.cnt[(uint64)r/PGSIZE]=1;
+    release(&ref.lock);
+  }
   release(&kmem.lock);
 
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
+}
+
+/**
+ * @brief krefcnt 获取内存的引用计数
+ * @param pa 指定的内存地址
+ * @return 引用计数
+ */
+int krefcnt(void* pa) {
+  return ref.cnt[(uint64)pa / PGSIZE];
+}
+
+/**
+ * @brief kaddrefcnt 增加内存的引用计数
+ * @param pa 指定的内存地址
+ * @return 0:成功 -1:失败
+ */
+int kaddrefcnt(void* pa) {
+  if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
+    return -1;
+  acquire(&ref.lock);
+  ++ref.cnt[(uint64)pa / PGSIZE];
+  release(&ref.lock);
+  return 0;
 }

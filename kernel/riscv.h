@@ -1,3 +1,7 @@
+// 记录应用了COW策略后fork的页面
+#define PTE_F (1L << 8)
+
+
 // which hart (core) is this?
 static inline uint64
 r_mhartid()
