@@ -16,7 +16,8 @@ struct entry {
 struct entry *table[NBUCKET];
 int keys[NKEYS];
 int nthread = 1;
-
+// 给每个桶分配一个 lock
+pthread_mutex_t lock[NBUCKET] = {PTHREAD_MUTEX_INITIALIZER};//默认初始化
 double
 now()
 {
@@ -50,8 +51,10 @@ void put(int key, int value)
     // update the existing key.
     e->value = value;
   } else {
+    pthread_mutex_lock(&lock[i]);       // acquire lock
     // the new is new.
     insert(key, value, &table[i], table[i]);
+    pthread_mutex_unlock(&lock[i]);       // acquire lock
   }
 }
 

@@ -30,7 +30,26 @@ barrier()
   // Block until all threads have called barrier() and
   // then increment bstate.round.
   //
-  
+  pthread_mutex_lock(&bstate.barrier_mutex);//获取锁
+  if(++bstate.nthread!=nthread){
+    //所有线程未到达 pthread_cond_wait作用
+     /*原子操作：释放传入的锁，阻塞当前线程（等待信号唤醒）；
+      当线程被唤醒时，pthread_cond_wait 会重新锁定互斥锁，然后返回
+     */
+    pthread_cond_wait(&bstate.barrier_cond, &bstate.barrier_mutex); 
+
+  }
+  else{
+    //所有线程已经到达
+    bstate.nthread=0;//重置线程数
+    bstate.round++;//增加轮数（即进入下一轮）
+        /**
+     * 只有所有线程都调用过一次 barrier 之后，才进入下一轮
+     * 通过条件变量通知所有处于 wait 的线程
+     */
+    pthread_cond_broadcast(&bstate.barrier_cond);
+  }
+  pthread_mutex_unlock(&bstate.barrier_mutex);//释放索
 }
 
 static void *
