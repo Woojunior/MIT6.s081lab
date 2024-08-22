@@ -18,6 +18,7 @@ sputc(char *s, char c)
   return 1;
 }
 
+//将整数转换为字符串并写入缓冲区
 static int
 sprintint(char *s, int xx, int base, int sign)
 {
@@ -44,6 +45,11 @@ sprintint(char *s, int xx, int base, int sign)
   return n;
 }
 
+
+// 解析格式化字符串 fmt。
+// 根据格式说明符（如 %d, %x, %s, %%）将相应的参数转换为字符串并写入缓冲区 buf。
+// 限制写入的最大字节数 sz，以避免缓冲区溢出。
+// 返回实际写入的字节数
 int
 snprintf(char *buf, int sz, char *fmt, ...)
 {
