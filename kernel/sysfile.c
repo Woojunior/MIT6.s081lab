@@ -126,13 +126,13 @@ sys_link(void)
     return -1;
 
   begin_op();
-  if((ip = namei(old)) == 0){
+  if((ip = namei(old)) == 0){//根据旧的路径名找到inode，放到ip里
     end_op();
     return -1;
   }
 
-  ilock(ip);
-  if(ip->type == T_DIR){
+  ilock(ip);//由于要改变ip内成员，因而要上锁
+  if(ip->type == T_DIR){//如果ip是目录，就直接释放，返回-1
     iunlockput(ip);
     end_op();
     return -1;
@@ -142,7 +142,7 @@ sys_link(void)
   iupdate(ip);
   iunlock(ip);
 
-  if((dp = nameiparent(new, name)) == 0)
+  if((dp = nameiparent(new, name)) == 0)//dp保存文件的目录
     goto bad;
   ilock(dp);
   if(dp->dev != ip->dev || dirlink(dp, name, ip->inum) < 0){
@@ -322,6 +322,42 @@ sys_open(void)
     return -1;
   }
 
+  //插入一段逻辑，如果ip是T_SYMLINK 则找到真正的ip
+  //如果设置了标志位 O_NOFOLLOW的话，则用户不用找到真正的文件，而是直接返回软连接的inode
+  if(ip->type==T_SYMLINK && !(omode & O_NOFOLLOW)){
+
+    //开始寻找真正的inode，为了防止死循环，这里最多寻找10此
+    for(int i=0; i<10 ; i++){
+
+      if(readi(ip,0,(uint64)path,0,MAXPATH)!=MAXPATH){
+         iunlockput(ip);
+         end_op();
+         return -1;
+      
+      }
+      iunlockput(ip);
+      ip=namei(path);
+      if(ip==0){
+        //根据路径没找到inode
+        end_op();
+        return -1;
+      }
+
+      ilock(ip);
+      if(ip->type!=T_SYMLINK){
+        break;//找到了真正的inode
+      }
+
+    }
+    if(ip->type==T_SYMLINK){//超过最大循环次数后仍然为符号链接，找到的真正的inode记录又是符号链接,返回错误
+      iunlockput(ip);
+      end_op();
+      return -1;
+    }
+  }
+
+
+  //file即文件描述符 和inode是分开管理的
   if((f = filealloc()) == 0 || (fd = fdalloc(f)) < 0){
     if(f)
       fileclose(f);
@@ -483,4 +519,39 @@ sys_pipe(void)
     return -1;
   }
   return 0;
+}
+
+uint64
+sys_symlink(void)
+{
+  char target[MAXPATH], path[MAXPATH];
+  //target为要符号链接的目标
+  //path为新生成的路径
+
+  struct inode *ip;
+
+  //从寄存器读取用户传入的 系统调用的参数 第一个参数target 第二个参数path
+  if(argstr(0,target,MAXPATH)<0|| argstr(1,path,MAXPATH)<0)
+    return -1;
+  
+  //log中系统调用开始 都要
+  begin_op();
+
+  //新建一个node 对应新路径，文件类型为 T_SYMLINK
+  //create 后两个参数是主设备号、此设备号、用于万物皆文件
+  if((ip=create(path,T_SYMLINK,0,0))==0){
+    end_op();
+    return -1;
+  }
+
+  //把target的文件名 作为内容写进文件 ip
+  if(writei(ip, 0 , (uint64) target, 0 ,MAXPATH)< MAXPATH){
+    iunlockput(ip);
+    end_op();
+    return -1;
+  }
+  iunlockput(ip);
+  end_op();
+  return 0;
+
 }

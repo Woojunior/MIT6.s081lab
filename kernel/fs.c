@@ -401,6 +401,35 @@ bmap(struct inode *ip, uint bn)
     return addr;
   }
 
+  bn -= NINDIRECT;
+  //直接块和间接块已经分配完，现在开始分配双简间接块
+  uint addr1, *a1;
+  struct buf *bp1;
+  if(bn<NDOUBLE_INDIRECT){
+    // Load double_indirect block, allocating if necessary.
+    if((addr1 = ip->addrs[NDIRECT+1]) == 0)
+      ip->addrs[NDIRECT+1] = addr1 = balloc(ip->dev);
+    bp1 = bread(ip->dev, addr1);
+    a1 = (uint*)bp1->data;
+
+    //中间块层，一级
+    if((addr1=a1[bn /256])==0){
+      a1[bn /256]=addr1= balloc(ip->dev);
+      log_write(bp1);
+    }
+    brelse(bp1);
+
+    //底层块层，二级
+    bp =bread(ip->dev, addr1);//此时addr1是记录的双间接块第一层的地址
+    a =(uint*) bp->data;
+    if((addr=a[bn % 256])==0){
+      a[bn % 256]=addr=balloc(ip->dev);//分配双间接块的第二层的块
+      log_write(bp);
+    }
+    brelse(bp);
+    return addr;
+  }
+
   panic("bmap: out of range");
 }
 
@@ -430,6 +459,36 @@ itrunc(struct inode *ip)
     brelse(bp);
     bfree(ip->dev, ip->addrs[NDIRECT]);
     ip->addrs[NDIRECT] = 0;
+  }
+
+  int m;
+  struct buf *bp1;
+  uint *a1;
+  if (ip->addrs[NDIRECT + 1])
+  {
+    bp1 = bread(ip->dev, ip->addrs[NDIRECT + 1]);
+    a1 = (uint *)bp1->data;
+    for (j = 0; j < NINDIRECT; j++)
+    {
+      // 2.再删第二层块，即一级
+      if (a1[j])
+      {
+
+        // 1.先删最底层块，即二级
+        bp = bread(ip->dev, a1[j]);
+        a = (uint *)bp->data;
+        for (m = 0; m < NINDIRECT; m++)
+        {
+          if (a[m])
+            bfree(ip->dev, a[m]);
+        }
+        brelse(bp);
+        bfree(ip->dev, a1[j]);
+      }
+    }
+    brelse(bp1);
+    bfree(ip->dev, ip->addrs[NDIRECT + 1]);
+    ip->addrs[NDIRECT + 1] = 0;
   }
 
   ip->size = 0;
